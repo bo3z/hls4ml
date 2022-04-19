@@ -1,17 +1,11 @@
 import numpy as np
-import math
 import os
-import copy
-import webbrowser
 from calmjs.parse import es5
-from calmjs.parse import asttypes
-from tabulate import tabulate
-from ast import literal_eval
 from contextlib import contextmanager
 
 from hls4ml.model.types import NamedType, IntegerPrecisionType, FixedPrecisionType
-from hls4ml.model.layers import Layer, Dense, BatchNormalization, Activation, ParametrizedActivation, PReLU, Softmax
-from hls4ml.model.optimizer import get_backend_passes, layer_optimizer, model_optimizer
+from hls4ml.model.layers import Layer, Dense, Activation, Softmax, Conv2D
+from hls4ml.model.optimizer import get_backend_passes, layer_optimizer
 from hls4ml.model.flow import register_flow
 from hls4ml.backends import FPGABackend
 from hls4ml.report import parse_quartus_report
@@ -36,6 +30,8 @@ class QuartusBackend(FPGABackend):
 
         quartus_types = [
             'quartus:transform_types',
+            'quartus:generate_conv_instructions',
+            'quartus:apply_resource_strategy',
         ]
         quartus_types_flow = register_flow('specific_types', quartus_types, requires=[init_flow], backend=self.name)
 
@@ -46,6 +42,11 @@ class QuartusBackend(FPGABackend):
         ]
         quantization_flow = register_flow('quantization', quantization_passes, requires=[init_flow], backend=self.name)
 
+
+        optimization_passes = [
+            'quartus:optimize_pointwise_conv',
+        ]
+        optimization_flow = register_flow('optimize', optimization_passes, requires=[init_flow], backend=self.name)
 
         templates = self._get_layer_templates()
         template_flow = register_flow('apply_templates', templates, requires=[init_flow], backend=self.name)
@@ -68,7 +69,7 @@ class QuartusBackend(FPGABackend):
         else:
             extras_flow = None
 
-        ip_flow_requirements = ['optimize', init_flow, quantization_flow, quartus_types_flow, extras_flow, template_flow]
+        ip_flow_requirements = ['optimize', init_flow, quantization_flow, optimization_flow, quartus_types_flow, extras_flow, template_flow]
         ip_flow_requirements = list(filter(None, ip_flow_requirements))
 
         self._default_flow = register_flow('ip', None, requires=ip_flow_requirements, backend=self.name)
@@ -88,31 +89,6 @@ class QuartusBackend(FPGABackend):
         config['HLSConfig'] = {}
 
         return config
-
-    def gen_quartus_weight_array(self, layer):
-        rf = layer.get_attr('reuse_factor')
-        block_factor = int((layer.attributes['n_in']*layer.attributes['n_out'])/rf)
-        bf_rounded = int(pow(2, np.ceil(np.log2(block_factor))))
-        rf_rounded = int(pow(2, np.ceil(np.log2(rf))))
-
-        layer.weights['weight'].data = np.transpose(layer.weights['weight'].data).flatten()
-
-        if(layer.attributes['n_in']*layer.attributes['n_out'] > 2048 and rf_rounded != rf):
-            layer.set_attr('rfpad', rf_rounded-rf)
-            layer.set_attr('bfpad', bf_rounded-block_factor)
-
-            temp = np.empty([bf_rounded, rf_rounded])
-            for i in range(rf_rounded):
-                for j in range (bf_rounded):
-                    if (i < rf and j < block_factor):
-                        w_index = i + rf * j
-                        temp[j][i] = layer.weights['weight'].data[w_index]
-                    else:
-                        temp[j][i] = 0
-            layer.weights['weight'].data = temp.flatten()
-
-        layer.weights['weight'].data_length = layer.weights['weight'].data.size
-        return
 
     def build(self, model, synth=True, fpgasynth=False):
         """
@@ -166,7 +142,6 @@ class QuartusBackend(FPGABackend):
         else:
             n_in, n_out = self.get_layer_mult_size(layer)
             self.set_closest_reuse_factor(layer, n_in, n_out)
-            self.gen_quartus_weight_array(layer)
             layer.set_attr('strategy', 'resource')
 
         if layer.model.config.is_resource_strategy(layer):
@@ -193,3 +168,20 @@ class QuartusBackend(FPGABackend):
             layer.set_attr('implementation', 'latency')
         else:
             layer.set_attr('implementation', layer.model.config.get_strategy(layer).lower())
+
+    @layer_optimizer(Conv2D)
+    def init_conv2d(self, layer):
+        # This can happen if we assign weights of Dense layer to 1x1 Conv2D
+        if len(layer.weights['weight'].data.shape) == 2: 
+            layer.weights['weight'].data = np.expand_dims(layer.weights['weight'].data, axis=(0,1))
+
+        layer.set_attr('rfpad', 0)
+        layer.set_attr('bfpad', 0)
+
+        n_in, n_out = self.get_layer_mult_size(layer)
+        layer.set_attr('strategy', 'resource')
+        self.set_target_reuse_factor(layer)
+        self.set_closest_reuse_factor(layer, n_in, n_out)
+
+        # TODO - For streaming Conv
+        # layer.set_attr('implementation', layer.model.config.get_conv_implementation(layer).lower())
