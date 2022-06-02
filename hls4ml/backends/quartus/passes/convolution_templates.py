@@ -1,10 +1,15 @@
 
 from hls4ml.backends.backend import get_backend
-from hls4ml.model.layers import Conv2D, Conv2DBatchnorm, DepthwiseConv2D
+from hls4ml.model.layers import Conv1D, Conv2D, Conv2DBatchnorm, DepthwiseConv2D
 from hls4ml.backends.template import LayerConfigTemplate, FunctionCallTemplate
 
 # TODO - Quartus doesn't support strategies (just yet) - remove strategy if never supported
 # static const unsigned strategy = nnet::{strategy};
+
+# TODO - Implementation is for streaming Conv (line buffer vs encoder)
+# static const nnet::conv_implementation implementation = nnet::conv_implementation::{implementation};   
+
+# Shared mult config
 conv_mult_config_template = """struct config{index}_mult : nnet::dense_config {{
     static const unsigned n_in = {n_in};
     static const unsigned n_out = {n_out};
@@ -28,11 +33,70 @@ conv_mult_config_template = """struct config{index}_mult : nnet::dense_config {{
     using product = nnet::product::{product_type}<x_T, y_T>;
 }};\n"""
 
-# TODO - Quartus doesn't support strategies (just yet) - remove strategy if never supported
-# static const unsigned strategy = nnet::{strategy};
+# Conv1D
+conv1d_config_template = """struct config{index} : nnet::conv1d_config {{
+    static const unsigned pad_left = {pad_left};
+    static const unsigned pad_right = {pad_right};
+    static const unsigned in_width = {in_width};
+    static const unsigned n_chan = {n_chan};
+    static const unsigned filt_width = {filt_width};
+    static const unsigned kernel_size = filt_width;
+    static const unsigned n_filt = {n_filt};
+    static const unsigned stride_width = {stride_width};
+    static const unsigned dilation = {dilation};
+    static const unsigned out_width = {out_width};
+    static const unsigned reuse_factor = {reuse};
+    static const bool store_weights_in_bram = false;
+    static const unsigned min_width = {min_width};
+    typedef {accum_t.name} accum_t;
+    typedef {bias_t.name} bias_t;
+    typedef {weight_t.name} weight_t;
+    typedef {config_t} mult_config;
+}};
+"""
 
-# TODO - Implementation is for streaming Conv (line buffer vs encoder)
-# static const nnet::conv_implementation implementation = nnet::conv_implementation::{implementation};    
+conv1d_function_template = 'nnet::conv_1d_{data_format}<{input_t}, {output_t}, {config}>({input}, {output}, {w}, {b});'
+conv1d_include_list = ['nnet_utils/nnet_conv1d.h']
+
+class Conv1DConfigTemplate(LayerConfigTemplate):
+    def __init__(self):
+        super().__init__(Conv1D)
+        self.template = conv1d_config_template
+        self.mult_template = conv_mult_config_template
+    
+    def format(self, node):
+        params = self._default_config_params(node)
+        params['dilation'] = node.get_attr('dilation', 1)
+
+        params['config_t'] = 'config{}_mult'.format(node.index)
+        conv_config = self.template.format(**params)
+
+        mult_params = self._default_config_params(node)
+        mult_params['n_in'] = node.get_attr('n_chan') * node.get_attr('filt_width')
+        mult_params['n_out'] = node.get_attr('n_filt')
+        mult_params['product_type'] = get_backend('quartus').product_type(node.get_input_variable().type.precision, node.get_weights('weight').type.precision)
+        mult_params['nzeros'] = node.get_weights('weight').nzeros
+        mult_params['nonzeros'] = node.get_weights('weight').nonzeros
+        mult_config = self.mult_template.format(**mult_params)
+
+        return mult_config + '\n' + conv_config
+
+class Conv1DFunctionTemplate(FunctionCallTemplate):
+    def __init__(self):
+        super().__init__(Conv1D, include_header=conv1d_include_list)
+        self.template = conv1d_function_template
+
+    def format(self, node):
+        params = self._default_function_params(node)
+        if node.get_attr('data_format') == 'channels_first':
+            raise Exception("channels_first not supported on Quartus")
+        params['data_format'] = 'cl'
+        params['w'] = node.get_weights('weight').name
+        params['b'] = node.get_weights('bias').name
+
+        return self.template.format(**params)
+
+# Conv2D
 conv2d_config_template = """struct config{index} : nnet::conv2d_config {{
     static const unsigned pad_top = {pad_top};
     static const unsigned pad_bottom = {pad_bottom};

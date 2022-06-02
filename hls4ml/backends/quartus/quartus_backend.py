@@ -4,7 +4,7 @@ from calmjs.parse import es5
 from contextlib import contextmanager
 
 from hls4ml.model.types import NamedType, IntegerPrecisionType, FixedPrecisionType
-from hls4ml.model.layers import Layer, Dense, Activation, Softmax, Conv2D
+from hls4ml.model.layers import Conv1D, Layer, Dense, Activation, Softmax, Conv2D
 from hls4ml.model.optimizer import get_backend_passes, layer_optimizer
 from hls4ml.model.flow import register_flow
 from hls4ml.backends import FPGABackend
@@ -168,6 +168,19 @@ class QuartusBackend(FPGABackend):
             layer.set_attr('implementation', 'latency')
         else:
             layer.set_attr('implementation', layer.model.config.get_strategy(layer).lower())
+
+    @layer_optimizer(Conv1D)
+    def init_conv1d(self, layer):
+        layer.set_attr('rfpad', 0)
+        layer.set_attr('bfpad', 0)
+
+        n_in, n_out = self.get_layer_mult_size(layer)
+        layer.set_attr('strategy', 'resource')
+        self.set_target_reuse_factor(layer)
+        self.set_closest_reuse_factor(layer, n_in, n_out)
+
+        # TODO - For streaming Conv
+        # layer.set_attr('implementation', layer.model.config.get_conv_implementation(layer).lower())
 
     @layer_optimizer(Conv2D)
     def init_conv2d(self, layer):
