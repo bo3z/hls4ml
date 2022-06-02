@@ -1,9 +1,28 @@
 
-from hls4ml.model.layers import Pooling1D, Pooling2D, GlobalPooling1D, GlobalPooling2D
+from hls4ml.model.layers import Pooling1D, Pooling2D
 from hls4ml.backends.template import LayerConfigTemplate, FunctionCallTemplate
 
 # Pooling templates
-# TODO - Expand this, similar to Vivado, once Conv1D / streaming is supported
+# TODO - Move to ../fpga/passes, once streaming is supported on Quartus (should be identical to Vivado)
+
+pooling1d_config_template = """struct config{index} : nnet::pooling1d_config {{
+    static const unsigned n_in = {n_in};
+    static const unsigned n_out = {n_out};
+    static const unsigned n_filt = {n_filt};
+    static const unsigned pool_width = {pool_width};
+
+    static const unsigned filt_width = pool_width;
+    static const unsigned n_chan = n_filt;
+
+    static const unsigned pad_left = {pad_left};
+    static const unsigned pad_right = {pad_right};
+    static const unsigned stride_width = {stride_width};
+    static const nnet::Pool_Op pool_op = nnet::{pool_op};
+    static const unsigned reuse = {reuse};
+    typedef {accum_t.name} accum_t;
+}};\n"""
+
+
 pooling2d_config_template = """struct config{index} : nnet::pooling2d_config {{
     static const unsigned in_height = {in_height};
     static const unsigned in_width = {in_width};
@@ -28,14 +47,15 @@ pooling2d_config_template = """struct config{index} : nnet::pooling2d_config {{
     typedef {accum_t.name} accum_t;
 }};\n"""
 
+pooling1d_function_template = 'nnet::pooling1d_{data_format}<{input_t}, {output_t}, {config}>({input}, {output});'
 pooling2d_function_template = 'nnet::pooling2d_{data_format}<{input_t}, {output_t}, {config}>({input}, {output});'
-
 pooling_include_list = ['nnet_utils/nnet_pooling.h']
 
 class PoolingConfigTemplate(LayerConfigTemplate):
     def __init__(self):
-        super().__init__(Pooling2D)
+        super().__init__((Pooling1D, Pooling2D))
         self.templates = {
+            'Pooling1D': pooling1d_config_template,
             'Pooling2D': pooling2d_config_template,
         }
 
@@ -45,8 +65,9 @@ class PoolingConfigTemplate(LayerConfigTemplate):
 
 class PoolingFunctionTemplate(FunctionCallTemplate):
     def __init__(self):
-        super().__init__(Pooling2D, include_header=pooling_include_list)
+        super().__init__((Pooling1D, Pooling2D), include_header=pooling_include_list)
         self.templates = {
+            'Pooling1D': pooling1d_function_template,
             'Pooling2D': pooling2d_function_template,
         }
 
