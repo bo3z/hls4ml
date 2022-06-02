@@ -18,9 +18,16 @@ strategy_options = ['Latency', 'Resource']
 @pytest.mark.parametrize('chans', chans_options)
 @pytest.mark.parametrize('padds', padds_options)
 @pytest.mark.parametrize('strides', strides1d_options)
-@pytest.mark.parametrize('io_type', io_type_options)
-@pytest.mark.parametrize('strategy', strategy_options)
-def test_pointwiseconv1d(chans, padds, strides, io_type, strategy):
+@pytest.mark.parametrize('backend, io_type, strategy', [
+                                      ('Quartus', 'io_parallel', 'resource'),
+                                      ('Vivado', 'io_parallel', 'resource'),
+
+                                      ('Vivado', 'io_parallel', 'latency'),
+                                      
+                                      ('Vivado', 'io_stream', 'latency'),
+                                      ('Vivado', 'io_stream', 'resource')
+                                    ])
+def test_pointwiseconv1d(chans, padds, strides, backend, io_type, strategy):
     model = tf.keras.models.Sequential()
     input_shape = (28, 3)
     model.add(Conv1D(filters=32,
@@ -30,16 +37,18 @@ def test_pointwiseconv1d(chans, padds, strides, io_type, strategy):
                      input_shape=input_shape,
                      kernel_initializer='normal',
                      use_bias=False,
-                     data_format=chans
-                     ))
-
+                     data_format=chans))
     model.compile(optimizer='adam', loss='mse')
+    
     X_input = np.random.rand(100, *input_shape)
     keras_prediction = model.predict(X_input)
-    config = hls4ml.utils.config_from_keras_model(model, default_precision='ap_fixed<32,16>')
+    
+    default_precision = 'ac_fixed<32,16,true>' if backend == 'Quartus' else 'ap_fixed<32,16>'
+    config = hls4ml.utils.config_from_keras_model(model, default_precision=default_precision)
     config['Model']['Strategy'] = strategy
-    output_dir = str(test_root_path / 'hls4mlprj_pointwise1d_{}_strides_{}_{}_padding_{}_{}'.format(chans, strides[0], padds, io_type, strategy))
-    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir, io_type=io_type)
+    
+    output_dir = str(test_root_path / 'hls4mlprj_pointwise1d_{}_strides_{}_{}_padding_{}_{}_{}'.format(chans, strides[0], padds, backend, io_type, strategy))
+    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir, io_type=io_type, backend=backend)
     hls_model.compile()
     hls_prediction = hls_model.predict(X_input).reshape(keras_prediction.shape)
 

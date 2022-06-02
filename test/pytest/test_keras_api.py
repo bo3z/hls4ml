@@ -90,15 +90,13 @@ def test_activations(activation_function, backend):
 
     assert list(hls_model.get_layers())[2].attributes['class_name'] == activation_function.__class__.__name__
 
-
-keras_conv1d = [Conv1D]
 padds_options = ['same', 'valid']
-@pytest.mark.parametrize("conv1d", keras_conv1d)
-@pytest.mark.parametrize("padds", padds_options)
-def test_conv1d(conv1d, padds):
+@pytest.mark.parametrize('padds', padds_options)
+@pytest.mark.parametrize('backend', ['Vivado', 'Quartus'])
+def test_conv1d(padds, backend):
     model = tf.keras.models.Sequential()
     input_shape = (10, 128, 4)
-    model.add(conv1d(filters=32,
+    model.add(Conv1D(filters=32,
                      kernel_size=3,
                      strides=1,
                      padding=padds,
@@ -108,22 +106,23 @@ def test_conv1d(conv1d, padds):
                      use_bias=False,
                      data_format='channels_last'))
     model.add(Activation(activation='relu'))
-
     model.compile(optimizer='adam', loss='mse')
+    
     X_input = np.random.rand(10,128,4)
     keras_prediction = model.predict(X_input)
+    
     config = hls4ml.utils.config_from_keras_model(model)
-    output_dir = str(test_root_path / 'hls4mlprj_keras_api_conv1d_{}'.format(padds))
-    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir)
+    output_dir = str(test_root_path / 'hls4mlprj_keras_api_conv1d_{}_{}'.format(padds, backend))
+    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir, backend=backend)
     hls_model.compile()
-    hls_prediction = hls_model.predict(X_input)
+    hls_prediction = hls_model.predict(X_input).reshape(keras_prediction.shape)
+
+     # 5e-2 might be too high
+    np.testing.assert_allclose(hls_prediction, keras_prediction, rtol=0, atol=5e-2)
 
     assert len(model.layers) + 2 == len(hls_model.get_layers())
     assert list(hls_model.get_layers())[1].attributes['name'] == model.layers[0]._name
-
-    print(list(hls_model.get_layers())[1].attributes)
-    if conv1d == 'Conv1D':
-      assert list(hls_model.get_layers())[1].attributes['class_name'] == 'Conv1D'
+    assert list(hls_model.get_layers())[1].attributes['class_name'] == 'Conv1D'
     assert list(hls_model.get_layers())[1].attributes['activation'] == str(model.layers[0].activation).split()[1]
     assert list(hls_model.get_layers())[1].attributes["in_width"] == model.layers[0]._batch_input_shape[1]
     assert list(hls_model.get_layers())[1].attributes['filt_width'] == model.layers[0].kernel_size[0]
@@ -139,12 +138,9 @@ def test_conv1d(conv1d, padds):
     pad_left = pad_along_width // 2
     pad_right = pad_along_width - pad_left
 
-    out_valid	= math.ceil(float(model.layers[0]._batch_input_shape[1] - model.layers[0].kernel_size[0] + 1) / float(model.layers[0].strides[0]))
-
     if model.layers[0].padding == 'same':
         assert list(hls_model.get_layers())[1].attributes['pad_left'] == pad_left
         assert list(hls_model.get_layers())[1].attributes['pad_right'] == pad_right
-
     elif model.layers[0].padding == 'valid':
         assert list(hls_model.get_layers())[1].attributes['pad_left'] == 0
         assert list(hls_model.get_layers())[1].attributes['pad_right'] == 0
@@ -230,11 +226,13 @@ def test_conv2d(chans, padds, backend):
       assert list(hls_model.get_layers())[1].attributes['pad_right'] == 0
 
 pooling_layers = [MaxPooling1D, MaxPooling2D, AveragePooling1D, AveragePooling2D]
-@pytest.mark.parametrize("pooling", pooling_layers)
-@pytest.mark.parametrize("padds", padds_options)
-@pytest.mark.parametrize("chans", chans_options)
-def test_pooling(pooling, padds, chans):
+@pytest.mark.parametrize('pooling', pooling_layers)
+@pytest.mark.parametrize('padds', padds_options)
+@pytest.mark.parametrize('chans', chans_options)
+@pytest.mark.parametrize('backend', ['Vivado', 'Quartus'])
+def test_pooling(pooling, padds, chans, backend):
     assert '1D' in pooling.__name__ or '2D' in pooling.__name__
+    
     input_shape = (8,8,3) if '2D' in pooling.__name__ else (64,3)
     model = tf.keras.models.Sequential()
     if '2D' in pooling.__name__:
@@ -244,7 +242,6 @@ def test_pooling(pooling, padds, chans):
         model.add(Conv1D(filters=32, kernel_size=3, strides=1, padding=padds,
                       input_shape=input_shape, kernel_initializer='normal', use_bias=False,
                       data_format=chans))  
-    
     pool_size = (2, 2) if '2D' in pooling.__name__ else 2
     model.add(pooling(pool_size=pool_size, strides=None, padding=padds, data_format=None))
     model.compile(optimizer='adam', loss='mse')
@@ -252,11 +249,14 @@ def test_pooling(pooling, padds, chans):
     X_input = np.random.rand(100, *input_shape)
     keras_prediction = model.predict(X_input)
     config = hls4ml.utils.config_from_keras_model(model)
-    output_dir = str(test_root_path / 'hls4mlprj_keras_api_pooling_{}_{}_{}'.format(pooling.__name__, chans, padds))
+    output_dir = str(test_root_path / 'hls4mlprj_keras_api_pooling_{}_{}_{}_{}'.format(pooling.__name__, chans, padds, backend))
 
-    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir)
+    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir, backend=backend)
     hls_model.compile()
     hls_prediction = hls_model.predict(X_input).reshape(keras_prediction.shape)
+
+     # 5e-2 might be too high
+    np.testing.assert_allclose(hls_prediction, keras_prediction, rtol=0, atol=5e-2)
 
     hls_pool = list(hls_model.get_layers())[-1]
     ker_pool = model.layers[-1]
