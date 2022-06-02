@@ -149,40 +149,39 @@ def test_conv1d(conv1d, padds):
         assert list(hls_model.get_layers())[1].attributes['pad_left'] == 0
         assert list(hls_model.get_layers())[1].attributes['pad_right'] == 0
 
-# DONE
-keras_conv2d = [Conv2D]
-padds_options = ['same', 'valid']
-chans_options = ['channels_last']
-@pytest.mark.parametrize("conv2d", keras_conv2d)
-@pytest.mark.parametrize("chans", chans_options)
-@pytest.mark.parametrize("padds", padds_options)
-def test_conv2d(conv2d, chans, padds):
+chans_options=['channels_last']
+padds_options=['same', 'valid']
+@pytest.mark.parametrize('chans', chans_options)
+@pytest.mark.parametrize('padds',  padds_options)
+@pytest.mark.parametrize('backend', ['Vivado', 'Quartus'])
+def test_conv2d(chans, padds, backend):
     model = tf.keras.models.Sequential()
     input_shape = (28,28,3)
-    model.add(conv2d(filters=32,
+    model.add(Conv2D(filters=32,
                      kernel_size=(4,4),
                      strides=(4,4),
                      padding=padds,
                      input_shape=input_shape,
                      kernel_initializer='normal',
                      use_bias=False,
-                     data_format=chans
-                     ))
-
+                     data_format=chans))
     model.compile(optimizer='adam', loss='mse')
+    
     X_input = np.random.rand(100, *input_shape)
     keras_prediction = model.predict(X_input)
+    
     config = hls4ml.utils.config_from_keras_model(model)
-    output_dir = str(test_root_path / 'hls4mlprj_keras_api_{}_{}_{}'.format(conv2d.__name__.lower(), chans, padds))
-    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir)
+    output_dir = str(test_root_path / 'hls4mlprj_keras_api_conv2d_{}_{}_{}'.format(backend, chans, padds))
+    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir, backend=backend)
     hls_model.compile()
     hls_prediction = hls_model.predict(X_input).reshape(keras_prediction.shape)
 
+    # 5e-2 might be too high
+    np.testing.assert_allclose(hls_prediction, keras_prediction, rtol=0, atol=5e-2)
+
     assert len(model.layers) + 1 == len(hls_model.get_layers())
     assert list(hls_model.get_layers())[1].attributes['name'] == model.layers[0]._name
-
-    if conv2d == Conv2D:
-      assert list(hls_model.get_layers())[1].attributes['class_name'] == 'Conv2D'
+    assert list(hls_model.get_layers())[1].attributes['class_name'] == 'Conv2D'
     assert list(hls_model.get_layers())[1].attributes['activation'] == str(model.layers[0].activation).split()[1]
     assert list(hls_model.get_layers())[1].attributes['filt_width'] == model.layers[0].kernel_size[1]
     assert list(hls_model.get_layers())[1].attributes['filt_height'] == model.layers[0].kernel_size[0]
@@ -211,13 +210,11 @@ def test_conv2d(conv2d, chans, padds):
         out_width	= model.layers[0].output_shape[3]
         pad_along_height	= max((out_height - 1) * model.layers[0].strides[0] + model.layers[0].kernel_size[0] - model.layers[0]._batch_input_shape[2], 0)
         pad_along_width	= max((out_width - 1) * model.layers[0].strides[1] + model.layers[0].kernel_size[1] - model.layers[0]._batch_input_shape[3], 0)
-
       elif model.layers[0].data_format == 'channels_last':
         out_height	= model.layers[0].output_shape[1]
         out_width	= model.layers[0].output_shape[2]
         pad_along_height	= max((out_height - 1) * model.layers[0].strides[0] + model.layers[0].kernel_size[0] - model.layers[0]._batch_input_shape[1], 0)
         pad_along_width	= max((out_width - 1) * model.layers[0].strides[1] + model.layers[0].kernel_size[1] - model.layers[0]._batch_input_shape[2], 0)
-
       pad_top	= pad_along_height // 2
       pad_bottom	= pad_along_height - pad_top
       pad_left	= pad_along_width // 2
@@ -226,7 +223,6 @@ def test_conv2d(conv2d, chans, padds):
       assert list(hls_model.get_layers())[1].attributes['pad_bottom'] == pad_bottom
       assert list(hls_model.get_layers())[1].attributes['pad_left'] == pad_left
       assert list(hls_model.get_layers())[1].attributes['pad_right'] == pad_right
-
     elif model.layers[0].padding =='valid':
       assert list(hls_model.get_layers())[1].attributes['pad_top'] == 0
       assert list(hls_model.get_layers())[1].attributes['pad_bottom'] == 0

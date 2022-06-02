@@ -15,11 +15,11 @@ strides1d_options = [(1,), (2,)]
 strides2d_options = [(1, 1), (2, 2)]
 strategy_options = ['Latency', 'Resource']
 
-@pytest.mark.parametrize("chans", chans_options)
-@pytest.mark.parametrize("padds", padds_options)
-@pytest.mark.parametrize("strides", strides1d_options)
-@pytest.mark.parametrize("io_type", io_type_options)
-@pytest.mark.parametrize("strategy", strategy_options)
+@pytest.mark.parametrize('chans', chans_options)
+@pytest.mark.parametrize('padds', padds_options)
+@pytest.mark.parametrize('strides', strides1d_options)
+@pytest.mark.parametrize('io_type', io_type_options)
+@pytest.mark.parametrize('strategy', strategy_options)
 def test_pointwiseconv1d(chans, padds, strides, io_type, strategy):
     model = tf.keras.models.Sequential()
     input_shape = (28, 3)
@@ -46,12 +46,19 @@ def test_pointwiseconv1d(chans, padds, strides, io_type, strategy):
     assert 'Pointwise' in list(hls_model.graph.values())[1].class_name
     np.testing.assert_allclose(hls_prediction, keras_prediction, rtol=0, atol=0.001)
 
-@pytest.mark.parametrize("chans", chans_options)
-@pytest.mark.parametrize("padds", padds_options)
-@pytest.mark.parametrize("strides", strides2d_options)
-@pytest.mark.parametrize("io_type", io_type_options)
-@pytest.mark.parametrize("strategy", strategy_options)
-def test_pointwiseconv2d(chans, padds, strides, io_type, strategy):
+@pytest.mark.parametrize('chans', chans_options)
+@pytest.mark.parametrize('padds', padds_options)
+@pytest.mark.parametrize('strides', strides2d_options)
+@pytest.mark.parametrize('backend, io_type, strategy', [
+                                      ('Quartus', 'io_parallel', 'resource'),
+                                      ('Vivado', 'io_parallel', 'resource'),
+
+                                      ('Vivado', 'io_parallel', 'latency'),
+                                      
+                                      ('Vivado', 'io_stream', 'latency'),
+                                      ('Vivado', 'io_stream', 'resource')
+                                    ])
+def test_pointwiseconv2d(chans, padds, strides, backend, io_type, strategy):
     model = tf.keras.models.Sequential()
     input_shape = (28, 28, 3)
     model.add(Conv2D(filters=32,
@@ -61,17 +68,20 @@ def test_pointwiseconv2d(chans, padds, strides, io_type, strategy):
                      input_shape=input_shape,
                      kernel_initializer='normal',
                      use_bias=False,
-                     data_format=chans
-                     ))
+                     data_format=chans))
 
     model.compile(optimizer='adam', loss='mse')
     X_input = np.random.rand(100, *input_shape)
     keras_prediction = model.predict(X_input)
-    config = hls4ml.utils.config_from_keras_model(model, default_precision='ap_fixed<32,16>')
+    
+    default_precision = 'ac_fixed<32,16,true>' if backend == 'Quartus' else 'ap_fixed<32,16>'
+
+    config = hls4ml.utils.config_from_keras_model(model, default_precision=default_precision)
     config['Model']['Strategy'] = strategy
     stride_cfg = str(strides).replace(', ', '_').replace('(', '').replace(')', '')
-    output_dir = str(test_root_path / 'hls4mlprj_pointwise2d_{}_strides_{}_{}_padding_{}_{}'.format(chans, stride_cfg, padds, io_type, strategy))
-    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir, io_type=io_type)
+    output_dir = str(test_root_path / 'hls4mlprj_pointwise2d_{}_strides_{}_{}_padding_{}_{}_{}'.format(chans, stride_cfg, padds, backend, io_type, strategy))
+    
+    hls_model = hls4ml.converters.convert_from_keras_model(model, hls_config=config, output_dir=output_dir, io_type=io_type, backend=backend)
     hls_model.compile()
     hls_prediction = hls_model.predict(X_input).reshape(keras_prediction.shape)
 
