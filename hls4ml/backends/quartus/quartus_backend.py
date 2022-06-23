@@ -32,6 +32,7 @@ class QuartusBackend(FPGABackend):
             'quartus:transform_types',
             'quartus:generate_conv_instructions',
             'quartus:apply_resource_strategy',
+            'quartus:apply_winograd_kernel_transformation'
         ]
         quartus_types_flow = register_flow('specific_types', quartus_types, requires=[init_flow], backend=self.name)
 
@@ -41,7 +42,6 @@ class QuartusBackend(FPGABackend):
             'fuse_consecutive_batch_normalization',
         ]
         quantization_flow = register_flow('quantization', quantization_passes, requires=[init_flow], backend=self.name)
-
 
         optimization_passes = [
             'quartus:optimize_pointwise_conv',

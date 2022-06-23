@@ -37,7 +37,8 @@ class ApplyResourceStrategy(OptimizerPass):
         elif isinstance(node, Conv1D):
             node.weights['weight'].data = np.transpose(node.weights['weight'].data, axes=[2, 0, 1])         # (W,C,F) => (F,W,C)
         elif isinstance(node, Conv2D):
-            node.weights['weight'].data = np.transpose(node.weights['weight'].data, axes=[3, 0, 1, 2])      # (H,W,C,F) => (F,H,W,C)
+            # TODO - This format only works for Winograd...not im2col...decide how to handle this split
+            node.weights['weight'].data = np.transpose(node.weights['weight'].data, axes=[3, 2, 0, 1])      # (H,W,C,F) => (F,C,H,W)
         else:
             raise Exception('Unexpected layer {} with resource strategy'.format(node.class_name))
 
