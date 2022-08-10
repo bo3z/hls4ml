@@ -6,14 +6,25 @@ from hls4ml.backends.template import LayerConfigTemplate, FunctionCallTemplate
 pooling1d_config_template = """struct config{index} : nnet::pooling1d_config {{
     static const unsigned stride_width = {stride_width};
     static const unsigned pool_width = {pool_width};
+    static const unsigned filt_width = {pool_width};
 
+    static const unsigned stride_height = 1;
+    static const unsigned pool_height = 1;
+    static const unsigned filt_height = 1;
+    
     static const unsigned n_in = {n_in};
     static const unsigned n_out = {n_out};
 
+    static const unsigned in_width = {n_in};
+    static const unsigned in_height = 1;
+
     static const unsigned n_filt = {n_filt};
+    static const unsigned n_chan = {n_filt};
 
     static const unsigned pad_left = {pad_left};
     static const unsigned pad_right = {pad_right};
+    static const unsigned pad_top = 0;
+    static const unsigned pad_bottom = 0;
 
     static const nnet::Pool_Op pool_op = nnet::{pool_op};
 }};\n"""
@@ -24,6 +35,8 @@ pooling2d_config_template = """struct config{index} : nnet::pooling2d_config {{
 
     static const unsigned pool_height = {pool_height};
     static const unsigned pool_width = {pool_width};
+    static const unsigned filt_height = {pool_height};
+    static const unsigned filt_width = {pool_width};
 
     static const unsigned in_height = {in_height};
     static const unsigned in_width = {in_width};
@@ -31,6 +44,7 @@ pooling2d_config_template = """struct config{index} : nnet::pooling2d_config {{
     static const unsigned out_width = {out_width};
     
     static const unsigned n_filt = {n_filt};
+    static const unsigned n_chan = {n_filt};
 
     static const unsigned pad_top = {pad_top};
     static const unsigned pad_bottom = {pad_bottom};
@@ -58,7 +72,7 @@ pooling2d_function_template = 'nnet::pooling2d_{data_format}<{input_t}, {output_
 global_pooling1d_function_template = 'nnet::global_pooling1d_{data_format}<{input_t}, {output_t}, {config}>({input}, {output});'
 global_pooling2d_function_template = 'nnet::global_pooling2d_{data_format}<{input_t}, {output_t}, {config}>({input}, {output});'
 
-pooling_include_list = ['nnet_utils/nnet_pooling.h']
+pooling_include_list = ['nnet_utils/nnet_pooling.h', 'nnet_utils/nnet_pooling_stream.h']
 
 class PoolingConfigTemplate(LayerConfigTemplate):
     def __init__(self):
