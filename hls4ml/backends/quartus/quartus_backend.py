@@ -33,7 +33,6 @@ class QuartusBackend(FPGABackend):
 
         quartus_types = [
             'quartus:transform_types',
-            'quartus:generate_conv_instructions',
             'quartus:apply_resource_strategy',
             'quartus:apply_winograd_kernel_transformation'
         ]
