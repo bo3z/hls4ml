@@ -31,10 +31,13 @@ conv_mult_config_template = """struct config{index}_mult : nnet::dense_config {{
 ''' 1D Conv '''
 conv1d_config_template = """struct config{index} : nnet::conv1d_config {{
     static const unsigned in_width = {in_width};
+    static const unsigned in_height = 1;
     static const unsigned n_chan = {n_chan};
 
     static const unsigned filt_width = {filt_width};
+    static const unsigned filt_height = 1;
     static const unsigned impl_filt_width = {impl_filt_width};
+    static const unsigned impl_filt_height = 1;
     static const unsigned kernel_size = filt_width;
     
     static const unsigned n_filt = {n_filt};
@@ -42,13 +45,15 @@ conv1d_config_template = """struct config{index} : nnet::conv1d_config {{
     
     static const unsigned pad_left = {pad_left};
     static const unsigned pad_right = {pad_right};
+    static const unsigned pad_top = 0;
+    static const unsigned pad_bottom = 0;
     static const unsigned stride_width = {stride_width};
+    static const unsigned stride_height = 0;
     static const unsigned dilation = {dilation};
     
     static const unsigned reuse_factor = {reuse};
     static const unsigned parallelisation_factor = {parallelisation};
     static const bool store_weights_in_bram = false;
-    static const unsigned min_width = {min_width};
     
     typedef {accum_t.name} accum_t;
     typedef {bias_t.name} bias_t;
@@ -58,7 +63,7 @@ conv1d_config_template = """struct config{index} : nnet::conv1d_config {{
 """
 
 conv1d_function_template = 'nnet::conv_1d_{data_format}<{input_t}, {output_t}, {config}>({input}, {output}, {w}, {b});'
-conv1d_include_list = ['nnet_utils/nnet_conv1d.h']
+conv1d_include_list = ['nnet_utils/nnet_conv1d.h', 'nnet_utils/nnet_conv1d_stream.h']
 
 class Conv1DConfigTemplate(LayerConfigTemplate):
     def __init__(self):
@@ -123,9 +128,7 @@ conv2d_config_template = """struct config{index} : nnet::conv2d_config {{
     static const unsigned reuse_factor = {reuse};
     static const unsigned parallelisation_factor = {parallelisation};
     static const bool store_weights_in_bram = false;
-    static const unsigned min_height = {min_height};
-    static const unsigned min_width = {min_width};
-    
+
     typedef {accum_t.name} accum_t;
     typedef {bias_t.name} bias_t;
     typedef {weight_t.name} weight_t;
@@ -133,7 +136,7 @@ conv2d_config_template = """struct config{index} : nnet::conv2d_config {{
 }};\n"""
 
 conv2d_function_template = 'nnet::conv_2d_{data_format}<{input_t}, {output_t}, {config}>({input}, {output}, {w}, {b});'
-conv2d_include_list = ['nnet_utils/nnet_conv2d.h']
+conv2d_include_list = ['nnet_utils/nnet_conv2d.h', 'nnet_utils/nnet_conv2d_stream.h']
 
 class Conv2DConfigTemplate(LayerConfigTemplate):
     def __init__(self):

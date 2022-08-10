@@ -14,6 +14,10 @@ class ApplyWinogradKernelTransformation(OptimizerPass):
         # This optimizer works only after the Resource Strategy Optimizer, since order of transposition matters
         weights_transformed = node.get_attr('_weights_transposed', False) == True               
 
+        # Winograd algorithm is only used in io_parallel
+        # In io_stream, a line buffer algiorithm is used
+        parallel_io_type = node.model.config.get_config_value('IOType') == 'io_parallel'
+
         # Winograd algorithm-specific conditions
         if isinstance(node, Conv1D):
             # Winograd only applies to specific kernel sizes
@@ -49,7 +53,7 @@ class ApplyWinogradKernelTransformation(OptimizerPass):
         # Check any previous transformations
         already_transformed = node.get_attr('_winograd_transformation_applied', False) == True
 
-        return node_matches and weights_transformed and winograd_conditions and not already_transformed
+        return node_matches and weights_transformed and winograd_conditions and not already_transformed and parallel_io_type
 
     def transform(self, model, node):
         if isinstance(node, Conv1D):
@@ -139,7 +143,7 @@ class ApplyWinogradKernelTransformation(OptimizerPass):
                 node.set_attr('impl_filt_width', 4)
         else:
             raise Exception('Unexpected layer {} with Winograd kernel optimizer'.format(node.class_name))
-
+        
         node.set_attr('_winograd_transformation_applied', True)
 
         return False 
