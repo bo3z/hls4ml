@@ -151,14 +151,18 @@ class GenerateUnrolledDenseResource(OptimizerPass):
         block_factor = int(math.ceil(n_in * n_out / reuse_factor))
         mult_limit = int(math.ceil(n_in * n_out / mult_factor))
         mult_scale = mult_limit // n_out
-        
-        # Zero DSPs are the DSP blocks that always have zero input
-        # In this case, it is the number of rows in the transposed and reshaped weight matrix
-        # The new shape is (parallel_mult, reuse_factor)
-        zeros = np.sum(~weights.data.reshape(block_factor, reuse_factor).any(1))
 
+        # Map weights onto [parallel_mult, reuse_factor] and transpose
+        target_shape = (block_factor, reuse_factor)
+        weights_mapped = np.reshape(weights.data, target_shape).T
+
+        # Count columns where all the weights are equal (zero - pruning, non-zero, equal weight sharing)
+        zeros = np.count_nonzero(
+            np.all((weights_mapped == weights_mapped[0, :]), axis=0)
+        )
+    
         # Generate unrolled multiplications
-        mult_code = f"\t\t#pragma HLS ALLOCATION operation instances=mul limit={mult_limit - zeros}\n"
+        mult_code = f"\t\t#pragma HLS ALLOCATION operation instances=mul limit={block_factor - zeros}\n"
         mult_code += "\t\tMULT: {\n"
         mult_code += "\t\t\t#pragma HLS protocol\n"
         
@@ -169,8 +173,15 @@ class GenerateUnrolledDenseResource(OptimizerPass):
             in_index = ir
 
             mult_code += f"\t\t\tM{ir}: {{\n"
-            for _ in range(block_factor):
-                if weights.data.flatten()[w_index] != 0:
+            for im in range(block_factor):
+                if np.all(weights_mapped[:, im] == 0):
+                    # All the weights processed by this DSP are zero
+                    pass
+                elif np.all(weights_mapped[:, im] == weights_mapped[0, im]):
+                    # All the weights processed by this DSP are equal - constant coefficient multiplication
+                    mult_code += f"\t\t\t\tacc[{out_index}] += static_cast<typename CONFIG_T::accum_t>(CONFIG_T::template product<data_T, typename CONFIG_T::weight_t>::product(data[{in_index}], {weights_mapped[0, im]}));\n"
+                else:
+                    # General case
                     mult_code += f"\t\t\t\tacc[{out_index}] += static_cast<typename CONFIG_T::accum_t>(CONFIG_T::template product<data_T, typename CONFIG_T::weight_t>::product(data[{in_index}], weights[{w_index}]));\n"
         
                 w_index += reuse_factor
@@ -191,14 +202,16 @@ class GenerateUnrolledDenseResource(OptimizerPass):
 
     def __generate_unrolled_mult_code_rf_gt_nin_rem0(self, n_in, n_out, reuse_factor, weights):
         # Function constants
-        mult_factor = min(n_in, reuse_factor)
         block_factor = int(math.ceil(n_in * n_out / reuse_factor))
-        mult_limit = int(math.ceil(n_in * n_out / mult_factor))
         
-        # Zero DSPs are the DSP blocks that always have zero input
-        # In this case, it is the number of rows in the transposed and reshaped weight matrix
-        # The new shape is (parallel_mult, reuse_factor)
-        zeros = np.sum(~weights.data.reshape(block_factor, reuse_factor).any(1))
+        # Map weights onto [parallel_mult, reuse_factor] and transpose
+        target_shape = (block_factor, reuse_factor)
+        weights_mapped = np.reshape(weights.data, target_shape).T
+
+        # Count columns where all the weights are equal (zero - pruning, non-zero, equal weight sharing)
+        zeros = np.count_nonzero(
+            np.all((weights_mapped == weights_mapped[0, :]), axis=0)
+        )
         
         # Generate out indices
         outidx = [0] * reuse_factor
@@ -213,7 +226,7 @@ class GenerateUnrolledDenseResource(OptimizerPass):
         in_index = 0
 
         # Generate unrolled multiplications
-        mult_code = f"\t\t#pragma HLS ALLOCATION operation instances=mul limit={mult_limit - zeros}\n"
+        mult_code = f"\t\t#pragma HLS ALLOCATION operation instances=mul limit={block_factor - zeros}\n"
         mult_code += "\t\tMULT: {\n"
         mult_code += "\t\t\t#pragma HLS protocol\n"
         
@@ -222,9 +235,16 @@ class GenerateUnrolledDenseResource(OptimizerPass):
             out_index = outidx[ir]
 
             mult_code += f"\t\t\tM{ir}: {{\n"
-            for _ in range(block_factor):
-                if weights.data.flatten()[w_index] != 0:
-                    mult_code += f"\t\t\t\tacc[{int(out_index)}] += static_cast<typename CONFIG_T::accum_t>(CONFIG_T::template product<data_T, typename CONFIG_T::weight_t>::product(data[{in_index}], weights[{w_index}]));\n"
+            for im in range(block_factor):
+                if np.all(weights_mapped[:, im] == 0):
+                    # All the weights processed by this DSP are zero
+                    pass
+                elif np.all(weights_mapped[:, im] == weights_mapped[0, im]):
+                    # All the weights processed by this DSP are equal - constant coefficient multiplication
+                    mult_code += f"\t\t\t\tacc[{out_index}] += static_cast<typename CONFIG_T::accum_t>(CONFIG_T::template product<data_T, typename CONFIG_T::weight_t>::product(data[{in_index}], {weights_mapped[0, im]}));\n"
+                else:
+                    # General case
+                    mult_code += f"\t\t\t\tacc[{out_index}] += static_cast<typename CONFIG_T::accum_t>(CONFIG_T::template product<data_T, typename CONFIG_T::weight_t>::product(data[{in_index}], weights[{w_index}]));\n"
         
                 w_index += reuse_factor
                 if w_index > n_in * n_out:
