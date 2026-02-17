@@ -111,7 +111,7 @@ ReadInputHeight:
         for (unsigned i_iw = 0; i_iw < CONFIG_T::in_width; i_iw++) {
             #pragma HLS LOOP_FLATTEN
             #pragma HLS PIPELINE II=CONFIG_T::reuse_factor
-
+            
             compute_pool_buffer_2d<data_T, res_T, CONFIG_T>(data.read(), line_buffer, res);
         }
     }
