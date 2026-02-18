@@ -511,7 +511,6 @@ class CoyoteAcceleratorWriter(VitisWriter):
             model (ModelGraph): the hls4ml model
         """
 
- #       print("\n"*5, "--"*30, model.config.get_output_dir(), "\n"*5)
         import shutil
         if os.path.exists(model.config.get_output_dir() + '/Coyote'):
             shutil.rmtree(model.config.get_output_dir() + '/Coyote')
